@@ -1,0 +1,163 @@
+diff --git a/packages/scratch-gui/src/lib/libraries/extensions/index.jsx b/packages/scratch-gui/src/lib/libraries/extensions/index.jsx
+index 276611d..e925d7f 100644
+--- a/packages/scratch-gui/src/lib/libraries/extensions/index.jsx
++++ b/packages/scratch-gui/src/lib/libraries/extensions/index.jsx
+@@ -16,6 +16,15 @@ import text2speechInsetIconURL from './text2speech/text2speech-small.svg';
+ import translateIconURL from './translate/translate.png';
+ import translateInsetIconURL from './translate/translate-small.png';
+ 
++import stageTextIconURL from './stageText/stageText.svg';
++import stageTextInsetIconURL from './stageText/stageText-small.svg';
++
++import speech2textIconURL from './speech2text/speech2text.svg';
++import speech2textInsetIconURL from './speech2text/speech2text-small.svg';
++
++import mastraIconURL from './mastra/mastra.svg';
++import mastraInsetIconURL from './mastra/mastra-small.svg';
++
+ import makeymakeyIconURL from './makeymakey/makeymakey.png';
+ import makeymakeyInsetIconURL from './makeymakey/makeymakey-small.svg';
+ 
+@@ -174,6 +183,68 @@ export default [
+         featured: true,
+         internetConnectionRequired: true
+     },
++    {
++        name: (
++            <FormattedMessage
++                defaultMessage="Text"
++                description="Name for the Text extension"
++                id="gui.extension.stageText.name"
++            />
++        ),
++        extensionId: 'stageText',
++        iconURL: stageTextIconURL,
++        insetIconURL: stageTextInsetIconURL,
++        description: (
++            <FormattedMessage
++                defaultMessage="Show text in place of a costume."
++                description="Description for the Text extension"
++                id="gui.extension.stageText.description"
++            />
++        ),
++        featured: true
++    },
++    {
++        name: (
++            <FormattedMessage
++                defaultMessage="Speech to Text"
++                description="Name for the Speech to Text extension"
++                id="gui.extension.speech2text.name"
++            />
++        ),
++        extensionId: 'speech2text',
++        iconURL: speech2textIconURL,
++        insetIconURL: speech2textInsetIconURL,
++        description: (
++            <FormattedMessage
++                defaultMessage="Talk to your projects."
++                description="Description for the Speech to Text extension"
++                id="gui.extension.speech2text.description"
++            />
++        ),
++        featured: true,
++        internetConnectionRequired: true
++    },
++    {
++        name: (
++            <FormattedMessage
++                defaultMessage="Mastra API"
++                description="Name for the Mastra API extension"
++                id="gui.extension.mastra.name"
++            />
++        ),
++        extensionId: 'mastra',
++        iconURL: mastraIconURL,
++        insetIconURL: mastraInsetIconURL,
++        description: (
++            <FormattedMessage
++                defaultMessage="Talk to the computer of a game."
++                description="Description for the Mastra API extension"
++                id="gui.extension.mastra.description"
++            />
++        ),
++        featured: true,
++        internetConnectionRequired: true
++    },
+     {
+         name: 'Makey Makey',
+         extensionId: 'makeymakey',
+diff --git a/packages/scratch-render/src/RenderWebGL.js b/packages/scratch-render/src/RenderWebGL.js
+index 54a06cd..c7e31a1 100644
+--- a/packages/scratch-render/src/RenderWebGL.js
++++ b/packages/scratch-render/src/RenderWebGL.js
+@@ -11,6 +11,7 @@ const RenderConstants = require('./RenderConstants');
+ const ShaderManager = require('./ShaderManager');
+ const SVGSkin = require('./SVGSkin');
+ const TextBubbleSkin = require('./TextBubbleSkin');
++const TextCostumeSkin = require('./TextCostumeSkin');
+ const EffectTransform = require('./EffectTransform');
+ const log = require('./util/log');
+ 
+@@ -392,6 +393,45 @@ class RenderWebGL extends EventEmitter {
+         return skinId;
+     }
+ 
++    /**
++     * Create a new skin that shows wrapped lines of text in place of a costume.
++     * @param {!TextCostumeStyle} style - the text and its style. See TextCostumeSkin.
++     * @returns {!int} the ID for the new skin.
++     */
++    createTextCostumeSkin (style) {
++        const skinId = this._nextSkinId++;
++        const newSkin = new TextCostumeSkin(skinId, this);
++        newSkin.setStyle(style);
++        this._allSkins[skinId] = newSkin;
++        return skinId;
++    }
++
++    /**
++     * Update a text costume skin, or create a text costume skin if the previous skin was another kind of skin.
++     * A style that is the same as the current style changes nothing.
++     * @param {!int} skinId the ID for the skin to change.
++     * @param {!TextCostumeStyle} style - the text and its style. See TextCostumeSkin.
++     */
++    updateTextCostumeSkin (skinId, style) {
++        if (this._allSkins[skinId] instanceof TextCostumeSkin) {
++            this._allSkins[skinId].setStyle(style);
++            return;
++        }
++
++        const newSkin = new TextCostumeSkin(skinId, this);
++        newSkin.setStyle(style);
++        this._reskin(skinId, newSkin);
++    }
++
++    /**
++     * Get the number of wrapped lines of a text costume skin.
++     * @param {!int} skinId the ID of a text costume skin.
++     * @returns {number} the number of lines. An empty text has 0 lines.
++     */
++    getTextCostumeLineCount (skinId) {
++        return this._allSkins[skinId].lineCount;
++    }
++
+     /**
+      * Update an existing SVG skin, or create an SVG skin if the previous skin was not SVG.
+      * @param {!int} skinId the ID for the skin to change.
+diff --git a/packages/scratch-vm/src/extension-support/extension-manager.js b/packages/scratch-vm/src/extension-support/extension-manager.js
+index 6922cda..e2310cd 100644
+--- a/packages/scratch-vm/src/extension-support/extension-manager.js
++++ b/packages/scratch-vm/src/extension-support/extension-manager.js
+@@ -24,7 +24,10 @@ const builtinExtensions = {
+     makeymakey: () => require('../extensions/scratch3_makeymakey'),
+     boost: () => require('../extensions/scratch3_boost'),
+     gdxfor: () => require('../extensions/scratch3_gdx_for'),
+-    faceSensing: () => require('../extensions/scratch3_face_sensing')
++    faceSensing: () => require('../extensions/scratch3_face_sensing'),
++    stageText: () => require('../extensions/scratch3_stage_text'),
++    speech2text: () => require('../extensions/scratch3_speech2text'),
++    mastra: () => require('../extensions/scratch3_mastra')
+ };
+ 
+ /**
